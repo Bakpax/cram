@@ -7,7 +7,7 @@ import time
 
 from cram._encoding import b, bchr, bytestype, envencode, unicodetype
 from cram._diff import esc, glob, regex, unified_diff
-from cram._process import PIPE, STDOUT, execute
+from cram._process import PIPE, STDOUT, execute, setup_procs
 
 __all__ = ['test', 'testfile']
 
@@ -38,6 +38,33 @@ def test(lines, shell='/bin/sh', indent=2, testname=None, env=None,
     test (set to the specified shell). However, the TESTDIR and
     TESTFILE environment variables are not available. To run actual
     test files, see testfile().
+
+    Background Processes
+    --------------------
+
+    This function supports background processes.  This allows us
+    to, for example, set up a server and then test it like so:
+
+      & ./start-server  # don't wait before moving to next line
+      $ ./test-server
+
+    Behavior of background processes:
+
+    All background processes are run first in a cram test file, and if those
+    processes don't terminate of their own accord, they will receive
+    the SIGTERM signal at the end of the cram test file. For example:
+
+    & ./start-server1
+    $ ./test-server
+    $ ./test-server2  # this works!
+    & ./start-server2
+
+    You should never do this, but this demonstrates that all background
+    processes are started at the beginning of the cram test file NO MATTER
+    WHERE THEY ARE DEFINED IN THE FILE.
+
+    Keep in mind that output from backgrounded processes are ignored and
+    silently dropped.
 
     Example usage:
 
@@ -88,6 +115,7 @@ def test(lines, shell='/bin/sh', indent=2, testname=None, env=None,
     indent = b(' ') * indent
     cmdline = indent + b('$ ')
     conline = indent + b('> ')
+    bgline = indent + b('& ')
     usalt = 'CRAM%s' % time.time()
     salt = b(usalt)
 
@@ -111,6 +139,8 @@ def test(lines, shell='/bin/sh', indent=2, testname=None, env=None,
 
     if debug:
         stdin = []
+        setup = []
+
         for line in lines:
             if not line.endswith(b('\n')):
                 line += b('\n')
@@ -118,18 +148,27 @@ def test(lines, shell='/bin/sh', indent=2, testname=None, env=None,
                 stdin.append(line[len(cmdline):])
             elif line.startswith(conline):
                 stdin.append(line[len(conline):])
+            elif line.startswith(bgline):
+                setup.append(line[len(bgline):])
 
-        execute(shell + ['-'], stdin=b('').join(stdin), env=env)
+        with setup_procs(setup):
+            execute(shell + ['-'], stdin=b('').join(stdin), env=env)
         return ([], [], [])
 
     after = {}
     refout, postout = [], []
     i = pos = prepos = -1
     stdin = []
+    setup = []
     for i, line in enumerate(lines):
         if not line.endswith(b('\n')):
             line += b('\n')
-        refout.append(line)
+
+        if line.startswith(bgline):
+            setup.append(line[len(bgline):])
+        else:
+            refout.append(line)
+
         if line.startswith(cmdline):
             after.setdefault(pos, []).append(line)
             prepos = pos
@@ -143,8 +182,9 @@ def test(lines, shell='/bin/sh', indent=2, testname=None, env=None,
             after.setdefault(pos, []).append(line)
     stdin.append(b('echo %s %s $?\n' % (usalt, i + 1)))
 
-    output, retcode = execute(shell + ['-'], stdin=b('').join(stdin),
-                              stdout=PIPE, stderr=STDOUT, env=env)
+    with setup_procs(setup):
+        output, retcode = execute(shell + ['-'], stdin=b('').join(stdin),
+                                  stdout=PIPE, stderr=STDOUT, env=env)
     if retcode == 80:
         return (refout, None, [])
 
