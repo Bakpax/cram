@@ -53,6 +53,13 @@ The format in a nutshell:
 * Lines beginning with two spaces, a greater than sign, and a space
   allow multi-line commands.
 
+* Lines beginning with two spaces, an ampersand, and a space
+  allow backgrounded commands (e.g. for setting up servers). Note that
+  backgrounded commands will be run before any other commands in the file
+  in the order in which they are defined, and they will be sent the SIGTERM
+  signal at the end of a cram test file. Make sure your backgrounded command
+  respects SIGTERM or it will continue running!
+
 * All other lines beginning with two spaces are considered command
   output.
 

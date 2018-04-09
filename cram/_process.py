@@ -1,6 +1,8 @@
 """Utilities for running subprocesses"""
 
+from contextlib import contextmanager
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -52,3 +54,16 @@ def execute(args, stdin=None, stdout=None, stderr=None, cwd=None, env=None):
                          close_fds=os.name == 'posix')
     out, err = p.communicate(stdin)
     return out, p.returncode
+
+def to_string(string_or_bytes):
+    if isinstance(string_or_bytes, bytes):
+        return string_or_bytes.decode('utf-8')
+    return string_or_bytes
+
+@contextmanager
+def setup_procs(commands):
+    children = [subprocess.Popen(shlex.split(to_string(command)), shell=False)
+                for command in commands]
+    yield
+    for child in children:
+        child.terminate()  # sends SIGTERM
